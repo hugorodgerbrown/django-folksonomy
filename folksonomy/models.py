@@ -4,6 +4,22 @@ from django.db import models
 from django.utils.timezone import now as tz_now
 
 
+class TagCategory(models.Model):
+    """Used to label tags for filtering and management purposes."""
+
+    name = models.CharField(max_length=100, unique=True)
+    created_at = models.DateTimeField(
+        default=tz_now, help_text="When this category was created."
+    )
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name_plural = "tag categories"
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class Tag(models.Model):
     class TagState(models.TextChoices):
         PROPOSED = "PROPOSED", "Proposed"
@@ -11,7 +27,13 @@ class Tag(models.Model):
         REJECTED = "REJECTED", "Rejected"
 
     name = models.CharField(
-        max_length=150, unique=True, help_text="The tag value itself."
+        "Tag name", max_length=150, unique=True, help_text="The tag value itself."
+    )
+    categories = models.ManyToManyField(
+        TagCategory,
+        blank=True,
+        related_name="tags",
+        help_text="Tag classification categoreis - used for filtering etc.",
     )
     excerpt = models.TextField(blank=True, help_text="A short description of the tag.")
     parent_tag = models.ForeignKey(
@@ -78,3 +100,7 @@ class Tag(models.Model):
         self.tag = self.TagState.REJECTED
         self.rejected_at = tz_now()
         self.save(update_fields=["tag_state", "rejected_at"])
+
+    def get_category_display(self) -> str:
+        """Return all of the categories as a comma-separated string."""
+        return ", ".join([category.name for category in self.categories.all()])
