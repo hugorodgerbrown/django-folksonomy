@@ -5,31 +5,24 @@ from django.db import models
 from django.http import HttpRequest
 from django.utils.translation import gettext as _, gettext_lazy as _lazy
 
-from .models import Tag, TagCategory
-
-
-@admin.register(TagCategory)
-class TagCategoryAdmin(admin.ModelAdmin):
-    list_display = ["name", "created_at"]
-    readonly_fields = ["created_at"]
-    search_fields = ["name"]
+from .models import TagBase
 
 
 class IsSynonymFilter(admin.SimpleListFilter):
-    title = _("synonym")
-    parameter_name = "parent_tag"
+    title = _("synonym / alias")
+    parameter_name = "alias"
 
     def lookups(
         self, request: HttpRequest, model_admin: admin.ModelAdmin
     ) -> Iterable[tuple[str, str]]:
         return (
-            ("no", _("Is root tag")),
-            ("yes", _("Is tag synonym / alias")),
+            ("no", _("Is not an alias")),
+            ("yes", _("Is an alias tag")),
         )
 
     def queryset(
-        self, request: HttpRequest, queryset: models.QuerySet[Tag]
-    ) -> models.QuerySet[Tag]:
+        self, request: HttpRequest, queryset: models.QuerySet[TagBase]
+    ) -> models.QuerySet[TagBase]:
         if self.value() == "yes":
             return queryset.exclude(parent_tag__isnull=True)
         if self.value() == "no":
@@ -37,20 +30,18 @@ class IsSynonymFilter(admin.SimpleListFilter):
         return queryset
 
 
-@admin.register(Tag)
-class TagAdmin(admin.ModelAdmin):
+class TagAdminBase(admin.ModelAdmin):
     list_display = [
         "name",
         "is_root_tag",
-        "parent_tag",
-        "tag_state",
-        "categories_",
+        "is_alias_for",
+        "approval_state",
         "created_at",
     ]
-    list_filter = [IsSynonymFilter, "tag_state", "categories"]
-    raw_id_fields = ["parent_tag", "categories"]
+    list_filter = [IsSynonymFilter, "approval_state"]
+    raw_id_fields = ["is_alias_for"]
     readonly_fields = [
-        "tag_state",
+        "approval_state",
         "created_at",
         "updated_at",
         "accepted_at",
@@ -59,18 +50,15 @@ class TagAdmin(admin.ModelAdmin):
     search_fields = ["name", "excerpt"]
     actions = ["accept_tags", "reject_tags"]
 
-    @admin.display(description=_lazy("Tag Categories"))
-    def categories_(self, obj: Tag) -> str:
-        """Return all of the categories as a comma-separated string."""
-        return obj.get_category_display()
-
-    @admin.display(description=_lazy("is root tag (!=alias)"), boolean=True)
-    def is_root_tag(self, obj: Tag) -> bool:
+    @admin.display(description=_lazy("root tag (i.e. not an alias)"), boolean=True)
+    def is_root_tag(self, obj: TagBase) -> bool:
         """Return True if this tag is a root tag (i.e. not an alias)."""
-        return obj.parent_tag is None
+        return obj.is_alias_for is None
 
     @admin.action(description=_lazy("Accept selected tag(s)"))
-    def accept_tags(self, request: HttpRequest, queryset: models.QuerySet[Tag]) -> None:
+    def accept_tags(
+        self, request: HttpRequest, queryset: models.QuerySet[TagBase]
+    ) -> None:
         accepted = 0
         for tag in queryset:
             tag.accept()
@@ -80,7 +68,9 @@ class TagAdmin(admin.ModelAdmin):
         )
 
     @admin.action(description=_lazy("Reject selected tag(s)"))
-    def reject_tags(self, request: HttpRequest, queryset: models.QuerySet[Tag]) -> None:
+    def reject_tags(
+        self, request: HttpRequest, queryset: models.QuerySet[TagBase]
+    ) -> None:
         rejected = 0
         for tag in queryset:
             tag.reject()

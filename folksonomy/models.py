@@ -2,77 +2,66 @@ from typing import Any
 
 from django.db import models
 from django.utils.timezone import now as tz_now
+from django.utils.translation import gettext_lazy as _lazy
 
 
-class TagCategory(models.Model):
-    """Used to label tags for filtering and management purposes."""
-
-    name = models.CharField(max_length=100, unique=True)
-    created_at = models.DateTimeField(
-        default=tz_now, help_text="When this category was created."
-    )
-
-    class Meta:
-        ordering = ["name"]
-        verbose_name_plural = "tag categories"
-
-    def __str__(self) -> str:
-        return self.name
-
-
-class Tag(models.Model):
+class TagBase(models.Model):
     class TagState(models.TextChoices):
         PROPOSED = "PROPOSED", "Proposed"
         ACCEPTED = "ACCEPTED", "Accepted"
         REJECTED = "REJECTED", "Rejected"
 
     name = models.CharField(
-        "Tag name", max_length=150, unique=True, help_text="The tag value itself."
+        max_length=150, unique=True, help_text=_lazy("The tag value itself.")
     )
-    categories = models.ManyToManyField(
-        TagCategory,
-        blank=True,
-        related_name="tags",
-        help_text="Tag classification categoreis - used for filtering etc.",
+    excerpt = models.TextField(
+        blank=True, help_text=_lazy("A short description of the tag.")
     )
-    excerpt = models.TextField(blank=True, help_text="A short description of the tag.")
-    parent_tag = models.ForeignKey(
+    is_alias_for = models.ForeignKey(
         "self",
+        verbose_name="is an alias for",
         blank=True,
         null=True,
         on_delete=models.PROTECT,
-        help_text="A parent tag for which this acts as a synonym.",
+        help_text=_lazy(
+            "A parent tag for which this acts as an alias.",
+        ),
     )
-    tag_state = models.CharField(
+    approval_state = models.CharField(
         max_length=150,
         choices=TagState.choices,
         default=TagState.PROPOSED,
-        help_text="The state of this tag.",
+        help_text=_lazy("Whether this has been accepted as a valid tag."),
     )
     created_at = models.DateTimeField(
-        default=tz_now, help_text="When this tag was created."
+        default=tz_now, help_text=_lazy("When this tag was created.")
     )
     updated_at = models.DateTimeField(
-        default=tz_now, help_text="When this tag was last updated (at database level)."
+        default=tz_now,
+        help_text=_lazy("When this tag was last updated (at database level)."),
     )
     accepted_at = models.DateTimeField(
         blank=True,
         null=True,
-        help_text="When this tag was accepted.",
+        help_text=_lazy(
+            "When this tag was accepted.",
+        ),
     )
     rejected_at = models.DateTimeField(
         blank=True,
         null=True,
-        default=tz_now,
-        help_text="When this tag was rejected.",
+        help_text=_lazy(
+            "When this tag was rejected.",
+        ),
     )
 
     class Meta:
+        abstract = True
         ordering = ["name"]
-        verbose_name = "tag"
-        verbose_name_plural = "tags"
 
     def __str__(self) -> str:
+        if self.is_alias_for:
+            return f"{self.name} (alias for {self.is_alias_for.name})"
         return self.name
 
     @property
@@ -94,13 +83,11 @@ class Tag(models.Model):
     def accept(self) -> None:
         self.tag_state = self.TagState.ACCEPTED
         self.accepted_at = tz_now()
-        self.save(update_fields=["tag_state", "accepted_at"])
+        self.rejected_at = None
+        self.save(update_fields=["tag_state", "accepted_at", "rejected_at"])
 
     def reject(self) -> None:
         self.tag = self.TagState.REJECTED
         self.rejected_at = tz_now()
-        self.save(update_fields=["tag_state", "rejected_at"])
-
-    def get_category_display(self) -> str:
-        """Return all of the categories as a comma-separated string."""
-        return ", ".join([category.name for category in self.categories.all()])
+        self.accepted_at = None
+        self.save(update_fields=["tag_state", "rejected_at", "accepted_at"])
